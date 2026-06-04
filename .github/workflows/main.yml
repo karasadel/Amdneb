@@ -1,4 +1,4 @@
-name:working.yml 
+name: working.yml 
 
 on:
   push:
