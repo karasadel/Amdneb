@@ -1,0 +1,1980 @@
+# karasven_AI.py — النسخة الكاملة
+import subprocess, tempfile, os, sqlite3, sys, io, json, base64, shutil, time, asyncio
+from datetime import datetime, date
+import requests as req
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Document
+from telegram.ext import (Application, CommandHandler, MessageHandler,
+                           CallbackQueryHandler, filters, ContextTypes)
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# ══════════════════════════════════════════════
+#  إعدادات
+# ══════════════════════════════════════════════
+TOKEN        = os.getenv("BOT_TOKEN", "")
+OWNER_ID     = 6152761748
+OWNER_USER   = "A1_F4Y"
+VERCEL_TOKEN  = os.getenv("VERCEL_TOKEN", "")
+GITHUB_TOKEN  = os.getenv("GITHUB_TOKEN", "")
+
+GPP_CMD  = "/nix/store/b11ycf80cxi2iyrga8rkq1wzdinmax18-replit-runtime-path/bin/g++"
+JAVA_BIN = ""
+
+# ══════════════════════════════════════════════
+#  مشاريع محفوظة — جاهزة للاستخدام
+# ══════════════════════════════════════════════
+SAVED_PROJECTS = [
+    {
+        "title": "🧮 حاسبة بسيطة",
+        "lang": "py",
+        "code": (
+            "# حاسبة بسيطة\n"
+            "def calculator():\n"
+            "    a = float(input('الرقم الأول: '))\n"
+            "    op = input('العملية (+, -, *, /): ')\n"
+            "    b = float(input('الرقم الثاني: '))\n"
+            "    if op == '+': print(f'النتيجة: {a+b}')\n"
+            "    elif op == '-': print(f'النتيجة: {a-b}')\n"
+            "    elif op == '*': print(f'النتيجة: {a*b}')\n"
+            "    elif op == '/' and b != 0: print(f'النتيجة: {a/b}')\n"
+            "    else: print('عملية غير صحيحة!')\n"
+            "calculator()"
+        )
+    },
+    {
+        "title": "📝 قائمة مهام",
+        "lang": "py",
+        "code": (
+            "# قائمة مهام\n"
+            "tasks = []\n\n"
+            "def show(): [print(f'{i+1}. {t}') for i,t in enumerate(tasks)] or print('لا مهام!')\n"
+            "def add(t): tasks.append(t); print(f'✅ أُضيفت: {t}')\n"
+            "def delete(n):\n"
+            "    if 1<=n<=len(tasks): print(f'🗑️ حُذفت: {tasks.pop(n-1)}')\n\n"
+            "add('تعلم Python')\n"
+            "add('حل تحدي اليوم')\n"
+            "add('مراجعة الكود')\n"
+            "show()"
+        )
+    },
+    {
+        "title": "🔐 مولّد كلمة مرور",
+        "lang": "py",
+        "code": (
+            "# مولّد كلمة مرور قوية\n"
+            "import random, string\n\n"
+            "def gen_password(length=16):\n"
+            "    chars = string.ascii_letters + string.digits + '!@#$%^&*'\n"
+            "    return ''.join(random.choice(chars) for _ in range(length))\n\n"
+            "for i in range(5):\n"
+            "    print(f'كلمة مرور {i+1}: {gen_password()}')"
+        )
+    },
+    {
+        "title": "🎲 لعبة تخمين الرقم",
+        "lang": "py",
+        "code": (
+            "# لعبة تخمين الرقم\n"
+            "import random\n"
+            "secret = random.randint(1, 100)\n"
+            "attempts = 0\n"
+            "print('🎲 خمّن الرقم بين 1 و100 (7 محاولات)')\n"
+            "while attempts < 7:\n"
+            "    guess = int(input(f'محاولة {attempts+1}: '))\n"
+            "    attempts += 1\n"
+            "    if guess == secret:\n"
+            "        print(f'🎉 صح! في {attempts} محاولات!')\n"
+            "        break\n"
+            "    print('⬆️ أكبر!' if guess < secret else '⬇️ أصغر!')\n"
+            "else:\n"
+            "    print(f'❌ انتهت المحاولات! الرقم كان {secret}')"
+        )
+    },
+    {
+        "title": "🌡️ محوّل درجات الحرارة",
+        "lang": "py",
+        "code": (
+            "# محوّل درجات الحرارة\n"
+            "def c_to_f(c): return (c*9/5)+32\n"
+            "def f_to_c(f): return (f-32)*5/9\n"
+            "def c_to_k(c): return c+273.15\n\n"
+            "temp = 100\n"
+            "print(f'{temp}°C = {c_to_f(temp):.1f}°F')\n"
+            "print(f'{temp}°C = {c_to_k(temp):.2f}K')\n"
+            "print(f'98.6°F = {f_to_c(98.6):.1f}°C')"
+        )
+    },
+    {
+        "title": "📊 تحليل قائمة أرقام",
+        "lang": "py",
+        "code": (
+            "# تحليل قائمة أرقام\n"
+            "nums = [15, 8, 42, 3, 67, 23, 91, 5, 38, 12]\n"
+            "print(f'القائمة : {nums}')\n"
+            "print(f'العدد   : {len(nums)}')\n"
+            "print(f'المجموع : {sum(nums)}')\n"
+            "print(f'المتوسط : {sum(nums)/len(nums):.2f}')\n"
+            "print(f'الأكبر  : {max(nums)}')\n"
+            "print(f'الأصغر  : {min(nums)}')\n"
+            "print(f'مرتّبة  : {sorted(nums)}')"
+        )
+    },
+]
+
+# ══════════════════════════════════════════════
+#  ذكاء اصطناعي — opencode.ai (big-pickle)
+# ══════════════════════════════════════════════
+_AI_URL  = "https://opencode.ai/zen/v1/chat/completions"
+_AI_MODEL = "big-pickle"
+_AI_KEYS = [
+    "sk-ZP0Y71QDq4HhXrr5KgWEzsf8ZyNNsLJL070xXcGFUh8w7cvlFFJuks5k4jv7puCK",
+    "sk-dtcKP4hx4iznBCaVm1uFvbEax12z22hlJzcW9alSIya8OQfSigpJN42QfxHuP1xk",
+    "sk-Pe12GsYt4RnkTPtb7ACCGSj5vzz7u7m2INVDzxe1Z2ccGF904LFCsxpzouJek6ld",
+    "sk-MN9kABCiW1cskBQ4EncGFV6DFwyHvshu6CrjtmuHUFwdkvJvAHNzql90BqTpNHMC",
+    "sk-yXrnjOHCXVejD3v1Ngk2trqs8B2cFpQd9hbhBlpVyrNZgeevk3lPolVY0EtgQZha",
+]
+_KEY_IDX = 0
+
+_SYS_PROMPT = (
+    "أنت karasven AI — مساعد برمجة ذكي متكامل باللغة العربية. "
+    "اسمك karasven AI وتم تطويرك خصيصاً لمساعدة المبرمجين العرب. "
+    "عند السؤال عن هويتك قل: أنا karasven AI، مساعدك البرمجي الذكي. "
+    "أجب دائماً بالعربية ما لم يطلب المستخدم غير ذلك. "
+    "كن دقيقاً وعملياً في إجاباتك البرمجية. "
+    "عند كتابة الكود: استخدم تعليقات عربية، واكتب كوداً نظيفاً وجاهزاً للتشغيل. "
+    "نظّم ردودك بنقاط وعناوين. إذا كان السؤال برمجياً أعطِ مثالاً عملياً دائماً. "
+    "عند تصحيح الأخطاء: اشرح سبب الخطأ أولاً ثم أعطِ الحل الصحيح."
+)
+
+def ai_generate(prompt: str, history: list = None) -> str:
+    global _KEY_IDX
+    messages = [{"role": "system", "content": _SYS_PROMPT}]
+    if history:
+        for role, msg in history[-6:]:
+            messages.append({"role": role, "content": msg})
+    messages.append({"role": "user", "content": prompt})
+
+    for attempt in range(len(_AI_KEYS) * 2):
+        key = _AI_KEYS[_KEY_IDX % len(_AI_KEYS)]
+        try:
+            resp = req.post(
+                _AI_URL,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"model": _AI_MODEL, "messages": messages, "max_tokens": 2048},
+                timeout=30
+            )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"].strip()
+            elif resp.status_code in (429, 401, 403):
+                _KEY_IDX = (_KEY_IDX + 1) % len(_AI_KEYS)
+                time.sleep(1)
+                continue
+            else:
+                return f"⚠️ خطأ من الخادم: {resp.status_code}"
+        except Exception as e:
+            _KEY_IDX = (_KEY_IDX + 1) % len(_AI_KEYS)
+            time.sleep(1)
+    return "⚠️ تعذّر الاتصال بالذكاء الاصطناعي — حاول بعد قليل."
+
+# ══════════════════════════════════════════════
+#  قاعدة البيانات
+# ══════════════════════════════════════════════
+conn = sqlite3.connect('karasven.db', check_same_thread=False)
+c = conn.cursor()
+
+c.executescript('''
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY, full_name TEXT, username TEXT, first_seen TEXT);
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER, code TEXT, lang TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS stats (
+    user_id INTEGER PRIMARY KEY, exec_count INTEGER DEFAULT 0,
+    ai_count INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER, role TEXT, message TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS deployments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER, url TEXT, project_name TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS banned_users (
+    user_id INTEGER PRIMARY KEY, reason TEXT, banned_at TEXT);
+CREATE TABLE IF NOT EXISTS message_map (
+    admin_msg_id INTEGER PRIMARY KEY, user_id INTEGER, created_at TEXT);
+CREATE TABLE IF NOT EXISTS daily_challenges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT UNIQUE, challenge TEXT);
+CREATE TABLE IF NOT EXISTS pending_deploys (
+    user_id INTEGER PRIMARY KEY, code TEXT, filename TEXT, created_at TEXT);
+''')
+conn.commit()
+
+# ── migrations: أضف أعمدة ناقصة إن وُجدت ──
+for _migration in [
+    "ALTER TABLE stats ADD COLUMN ai_count INTEGER DEFAULT 0",
+    "ALTER TABLE stats ADD COLUMN exec_count INTEGER DEFAULT 0",
+]:
+    try:
+        c.execute(_migration)
+        conn.commit()
+    except Exception:
+        pass
+
+# ── helpers ──
+def register_user(user):
+    c.execute("INSERT OR IGNORE INTO users(user_id,full_name,username,first_seen) VALUES(?,?,?,?)",
+              (user.id, user.full_name, user.username or "", datetime.now().strftime("%Y-%m-%d")))
+    conn.commit()
+
+def is_banned(uid): 
+    c.execute("SELECT 1 FROM banned_users WHERE user_id=?", (uid,))
+    return c.fetchone() is not None
+
+def all_users():
+    c.execute("SELECT user_id FROM users")
+    return [r[0] for r in c.fetchall()]
+
+def save_project(uid, code, lang):
+    c.execute("INSERT INTO projects(user_id,code,lang,created_at) VALUES(?,?,?,?)",
+              (uid, code, lang, datetime.now().strftime("%Y-%m-%d %H:%M")))
+    conn.commit()
+
+def get_projects(uid):
+    c.execute("SELECT id,code,lang,created_at FROM projects WHERE user_id=? ORDER BY id DESC LIMIT 10", (uid,))
+    return c.fetchall()
+
+def inc_exec(uid):
+    c.execute("INSERT INTO stats(user_id,exec_count,ai_count) VALUES(?,1,0) ON CONFLICT(user_id) DO UPDATE SET exec_count=exec_count+1", (uid,))
+    conn.commit()
+
+def inc_ai(uid):
+    c.execute("INSERT INTO stats(user_id,exec_count,ai_count) VALUES(?,0,1) ON CONFLICT(user_id) DO UPDATE SET ai_count=ai_count+1", (uid,))
+    conn.commit()
+
+def get_stats(uid):
+    c.execute("SELECT exec_count, ai_count FROM stats WHERE user_id=?", (uid,))
+    r = c.fetchone()
+    return (r[0], r[1]) if r else (0, 0)
+
+def get_leaderboard():
+    c.execute("""SELECT u.full_name, s.exec_count, s.ai_count
+                 FROM stats s JOIN users u ON s.user_id=u.user_id
+                 ORDER BY (s.exec_count + s.ai_count) DESC LIMIT 10""")
+    return c.fetchall()
+
+def save_chat(uid, role, msg):
+    c.execute("INSERT INTO chat_history(user_id,role,message,created_at) VALUES(?,?,?,?)",
+              (uid, role, msg[:2000], datetime.now().strftime("%Y-%m-%d %H:%M")))
+    conn.commit()
+
+def get_chat_history(uid, limit=8):
+    c.execute("SELECT role,message FROM chat_history WHERE user_id=? ORDER BY id DESC LIMIT ?", (uid, limit))
+    return list(reversed(c.fetchall()))
+
+def clear_chat_history(uid):
+    c.execute("DELETE FROM chat_history WHERE user_id=?", (uid,))
+    conn.commit()
+
+def save_deployment(uid, url, name):
+    c.execute("INSERT INTO deployments(user_id,url,project_name,created_at) VALUES(?,?,?,?)",
+              (uid, url, name, datetime.now().strftime("%Y-%m-%d %H:%M")))
+    conn.commit()
+
+def get_deployments(uid):
+    c.execute("SELECT url,project_name,created_at FROM deployments WHERE user_id=? ORDER BY id DESC LIMIT 5", (uid,))
+    return c.fetchall()
+
+def save_pending_deploy(uid, code, filename='index.html'):
+    c.execute("INSERT OR REPLACE INTO pending_deploys(user_id,code,filename,created_at) VALUES(?,?,?,?)",
+              (uid, code, filename, datetime.now().strftime("%Y-%m-%d %H:%M")))
+    conn.commit()
+
+def get_pending_deploy(uid):
+    c.execute("SELECT code, filename FROM pending_deploys WHERE user_id=?", (uid,))
+    r = c.fetchone()
+    return (r[0], r[1]) if r else (None, None)
+
+def clear_pending_deploy(uid):
+    c.execute("DELETE FROM pending_deploys WHERE user_id=?", (uid,))
+    conn.commit()
+
+def save_message_map(admin_msg_id, user_id):
+    c.execute("INSERT OR REPLACE INTO message_map(admin_msg_id,user_id,created_at) VALUES(?,?,?)",
+              (admin_msg_id, user_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
+    conn.commit()
+
+def get_user_from_admin_msg(admin_msg_id):
+    c.execute("SELECT user_id FROM message_map WHERE admin_msg_id=?", (admin_msg_id,))
+    r = c.fetchone()
+    return r[0] if r else None
+
+# ══════════════════════════════════════════════
+#  إشعارات المالك
+# ══════════════════════════════════════════════
+async def notify_owner(bot, text: str) -> int | None:
+    try:
+        sent = await bot.send_message(chat_id=OWNER_ID, text=text, parse_mode="Markdown")
+        return sent.message_id
+    except Exception as e:
+        print(f"[notify_owner] {e}")
+        return None
+
+async def forward_to_owner(bot, user, text: str):
+    if user.id == OWNER_ID:
+        return
+    name     = user.full_name or "بدون اسم"
+    username = f"@{user.username}" if user.username else "لا يوزر"
+    msg_text = (f"📩 *رسالة جديدة*\n"
+                f"👤 {name}  |  {username}\n"
+                f"🆔 `{user.id}`\n\n"
+                f"💬 {text[:800]}")
+    mid = await notify_owner(bot, msg_text)
+    if mid:
+        save_message_map(mid, user.id)
+
+# ══════════════════════════════════════════════
+#  تنفيذ الأكواد
+# ══════════════════════════════════════════════
+async def run_code(lang: str, code: str) -> str:
+    try:
+        if lang == 'py':
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', encoding='utf-8', delete=False) as f:
+                f.write(code); fname = f.name
+            r = subprocess.run(['python', fname], capture_output=True, text=True,
+                               timeout=15, encoding='utf-8', errors='replace')
+            out = r.stdout or r.stderr or "✅ تنفيذ ناجح بدون خرج"
+            os.unlink(fname)
+
+        elif lang == 'js':
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', encoding='utf-8', delete=False) as f:
+                f.write(code); fname = f.name
+            r = subprocess.run(['node', fname], capture_output=True, text=True,
+                               timeout=15, encoding='utf-8', errors='replace')
+            out = r.stdout or r.stderr or "✅ تنفيذ ناجح بدون خرج"
+            os.unlink(fname)
+
+        elif lang == 'java':
+            if not JAVA_BIN:
+                out = "⚠️ Java غير مثبّت على هذا السيرفر حالياً."
+            else:
+                tmpdir = tempfile.mkdtemp()
+                class_name = "Main"
+                for line in code.split('\n'):
+                    if 'public class ' in line:
+                        class_name = line.split('public class ')[1].split()[0].split('{')[0].strip()
+                        break
+                fpath = os.path.join(tmpdir, f"{class_name}.java")
+                with open(fpath, 'w', encoding='utf-8') as f: f.write(code)
+                comp = subprocess.run([os.path.join(JAVA_BIN, 'javac'), fpath],
+                                      capture_output=True, text=True, timeout=30, encoding='utf-8')
+                if comp.returncode != 0:
+                    out = f"❌ خطأ في الترجمة:\n{comp.stderr[:800]}"
+                else:
+                    run = subprocess.run([os.path.join(JAVA_BIN, 'java'), '-cp', tmpdir, class_name],
+                                         capture_output=True, text=True, timeout=15, encoding='utf-8')
+                    out = run.stdout or run.stderr or "✅ تنفيذ ناجح بدون خرج"
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+        elif lang == 'cpp':
+            tmpdir = tempfile.mkdtemp()
+            src = os.path.join(tmpdir, 'main.cpp')
+            out_bin = os.path.join(tmpdir, 'main')
+            with open(src, 'w', encoding='utf-8') as f: f.write(code)
+            comp = subprocess.run([GPP_CMD, src, '-o', out_bin],
+                                  capture_output=True, text=True, timeout=30, encoding='utf-8')
+            if comp.returncode != 0:
+                out = f"❌ خطأ في الترجمة:\n{comp.stderr[:800]}"
+            else:
+                run = subprocess.run([out_bin], capture_output=True, text=True,
+                                     timeout=15, encoding='utf-8', errors='replace')
+                out = run.stdout or run.stderr or "✅ تنفيذ ناجح بدون خرج"
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+        elif lang == 'bash':
+            r = subprocess.run(['bash', '-c', code], capture_output=True, text=True,
+                               timeout=15, encoding='utf-8', errors='replace')
+            out = r.stdout or r.stderr or "✅ تنفيذ ناجح بدون خرج"
+
+        else:
+            out = "⚠️ لغة غير مدعومة"
+
+        return out[:2000]
+
+    except subprocess.TimeoutExpired:
+        return "⚠️ تجاوز الوقت (15 ثانية)"
+    except FileNotFoundError as e:
+        return f"⚠️ أداة غير متوفرة: {e}"
+    except Exception as e:
+        return f"❌ خطأ: {e}"
+
+# ══════════════════════════════════════════════
+#  مشاركة الكود (paste.rs)
+# ══════════════════════════════════════════════
+def share_code(code: str) -> str:
+    try:
+        r = req.post('https://paste.rs', data=code.encode('utf-8'), timeout=10)
+        if r.status_code == 201:
+            return r.text.strip()
+        return None
+    except Exception:
+        return None
+
+# ══════════════════════════════════════════════
+#  استضافة GitHub Pages
+# ══════════════════════════════════════════════
+def _github_pages_sync(code: str, filename: str, uid: int):
+    """دالة متزامنة — تُستدعى في executor لتجنب حجب event loop"""
+    if not GITHUB_TOKEN:
+        return None, "❌ GITHUB_TOKEN غير مضبوط"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json"
+    }
+    try:
+        user_resp = req.get("https://api.github.com/user", headers=headers, timeout=10)
+        if user_resp.status_code != 200:
+            return None, f"❌ فشل التحقق من توكن GitHub (كود: {user_resp.status_code})"
+        gh_user = user_resp.json()["login"]
+    except Exception as e:
+        return None, f"❌ خطأ اتصال: {e}"
+
+    repo_name = f"ksv-{uid}-{int(time.time())}"
+
+    try:
+        cr = req.post(
+            "https://api.github.com/user/repos",
+            headers=headers,
+            json={"name": repo_name, "private": False, "auto_init": False},
+            timeout=15
+        )
+        if cr.status_code == 403:
+            return None, (
+                "❌ *صلاحيات التوكن غير كافية!*\n\n"
+                "اتبع الخطوات:\n"
+                "١. روح: github.com → Settings → Developer settings\n"
+                "   → Personal access tokens → *Tokens (classic)*\n"
+                "٢. اضغط *Generate new token (classic)*\n"
+                "٣. اختر هذه الصلاحيات: ✅ *repo* (كاملة)\n"
+                "٤. انسخ التوكن وأعد ضبطه في Replit Secrets\n"
+                "   باسم: `GITHUB_TOKEN`"
+            )
+        if cr.status_code not in (200, 201):
+            return None, f"❌ فشل إنشاء الريبو: {cr.json().get('message','')}"
+    except Exception as e:
+        return None, f"❌ خطأ إنشاء ريبو: {e}"
+
+    time.sleep(2)
+
+    try:
+        fname_clean  = "index.html" if filename.lower().endswith(".html") else filename
+        content_b64  = base64.b64encode(code.encode("utf-8")).decode()
+        pr = req.put(
+            f"https://api.github.com/repos/{gh_user}/{repo_name}/contents/{fname_clean}",
+            headers=headers,
+            json={"message": "karasven AI deploy", "content": content_b64},
+            timeout=15
+        )
+        if pr.status_code not in (200, 201):
+            return None, f"❌ فشل رفع الملف: {pr.json().get('message','')}"
+    except Exception as e:
+        return None, f"❌ خطأ رفع: {e}"
+
+    try:
+        req.post(
+            f"https://api.github.com/repos/{gh_user}/{repo_name}/pages",
+            headers=headers,
+            json={"source": {"branch": "main", "path": "/"}},
+            timeout=15
+        )
+    except Exception:
+        pass
+
+    pages_url = f"https://{gh_user}.github.io/{repo_name}/"
+    repo_url  = f"https://github.com/{gh_user}/{repo_name}"
+    return (pages_url, repo_url), None
+
+async def deploy_to_github_pages(code: str, filename: str, uid: int):
+    """نسخة async — تشغّل الدالة المتزامنة في thread executor"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _github_pages_sync, code, filename, uid)
+
+# ══════════════════════════════════════════════
+#  استضافة Vercel
+# ══════════════════════════════════════════════
+async def deploy_to_vercel(code: str, filename: str, uid: int):
+    if not VERCEL_TOKEN:
+        return None, "❌ VERCEL_TOKEN غير مضبوط"
+    project_name = f"ksv-{uid}-{int(time.time())}"
+    if filename.endswith('.html'):
+        files = [{"file": "index.html", "data": base64.b64encode(code.encode()).decode()}]
+    elif filename.endswith('.py'):
+        files = [
+            {"file": "api/index.py", "data": base64.b64encode(code.encode()).decode()},
+            {"file": "vercel.json", "data": base64.b64encode(json.dumps({
+                "builds": [{"src": "api/index.py", "use": "@vercel/python"}],
+                "routes": [{"src": "/(.*)", "dest": "api/index.py"}]
+            }).encode()).decode()}
+        ]
+    else:
+        files = [{"file": filename, "data": base64.b64encode(code.encode()).decode()}]
+    headers = {"Authorization": f"Bearer {VERCEL_TOKEN}", "Content-Type": "application/json"}
+    try:
+        resp = req.post("https://api.vercel.com/v13/deployments", headers=headers,
+                        json={"name": project_name, "files": files,
+                              "projectSettings": {"framework": None}, "target": "production"},
+                        timeout=40)
+        data = resp.json()
+        if resp.status_code in (200, 201):
+            url = f"https://{data.get('url', project_name + '.vercel.app')}"
+            save_deployment(uid, url, project_name)
+            return url, None
+        return None, f"❌ Vercel: {data.get('error', {}).get('message', str(data))[:200]}"
+    except Exception as e:
+        return None, f"❌ خطأ اتصال: {e}"
+
+# ══════════════════════════════════════════════
+#  الكيبوردات
+# ══════════════════════════════════════════════
+def main_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💻 تنفيذ كود",         callback_data="menu_exec"),
+         InlineKeyboardButton("🤖 أدوات AI",          callback_data="menu_ai")],
+        [InlineKeyboardButton("💬 محادثة ذكية",        callback_data="chat"),
+         InlineKeyboardButton("🎓 تعلّم",              callback_data="menu_learn")],
+        [InlineKeyboardButton("🌐 استضافة أكواد",      callback_data="host"),
+         InlineKeyboardButton("🔧 أدوات مساعدة",      callback_data="menu_tools")],
+        [InlineKeyboardButton("📊 المتصدرين",          callback_data="leaderboard"),
+         InlineKeyboardButton("📂 مشاريعي",            callback_data="show")],
+        [InlineKeyboardButton("📁 مشاريع محفوظة",      callback_data="saved_projects"),
+         InlineKeyboardButton("📈 إحصائياتي",          callback_data="stats")],
+        [InlineKeyboardButton("📖 مساعدة",             callback_data="how"),
+         InlineKeyboardButton("🗑️ مسح الكل",           callback_data="clear")]
+    ])
+
+def back_keyboard(target="back"):
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data=target)]])
+
+def exec_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🐍 Python", callback_data="lang_py"),
+         InlineKeyboardButton("☕ Java",   callback_data="lang_java"),
+         InlineKeyboardButton("🟨 JS",    callback_data="lang_js")],
+        [InlineKeyboardButton("🔵 C++",   callback_data="lang_cpp"),
+         InlineKeyboardButton("⚡ Bash",  callback_data="lang_bash")],
+        [InlineKeyboardButton("🔙 رجوع",  callback_data="back")]
+    ])
+
+def ai_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤖 كود من فكرة",   callback_data="generate")],
+        [InlineKeyboardButton("🔍 مراجعة كود",    callback_data="ai_review")],
+        [InlineKeyboardButton("📝 شرح كود",       callback_data="ai_explain")],
+        [InlineKeyboardButton("🔄 تحويل لغات",    callback_data="ai_convert")],
+        [InlineKeyboardButton("📄 توثيق تلقائي",  callback_data="ai_docs")],
+        [InlineKeyboardButton("🐛 مصحّح أخطاء",   callback_data="ai_debug")],
+        [InlineKeyboardButton("🔙 رجوع",          callback_data="back")]
+    ])
+
+def learn_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎯 تحدي اليوم",      callback_data="challenge")],
+        [InlineKeyboardButton("🎮 خمّن النتيجة",    callback_data="game_guess")],
+        [InlineKeyboardButton("❓ شرح مفهوم",       callback_data="learn_concept")],
+        [InlineKeyboardButton("📝 اختبر معرفتك",    callback_data="learn_quiz")],
+        [InlineKeyboardButton("🔙 رجوع",            callback_data="back")]
+    ])
+
+def tools_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔌 قارئ API",          callback_data="tool_api")],
+        [InlineKeyboardButton("🔄 محوّل JSON↔Python",  callback_data="tool_json")],
+        [InlineKeyboardButton("🔍 كشف لغة الكود",     callback_data="tool_detect")],
+        [InlineKeyboardButton("🔗 مشاركة الكود",      callback_data="tool_share")],
+        [InlineKeyboardButton("📦 تثبيت مكتبة",       callback_data="tool_install")],
+        [InlineKeyboardButton("🐙 شارح Git",          callback_data="tool_git")],
+        [InlineKeyboardButton("⏱️ محلل التعقيد",       callback_data="tool_complexity")],
+        [InlineKeyboardButton("🔎 Regex Tester",       callback_data="tool_regex")],
+        [InlineKeyboardButton("🔙 رجوع",              callback_data="back")]
+    ])
+
+# ══════════════════════════════════════════════
+#  /start
+# ══════════════════════════════════════════════
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_banned(user.id):
+        await update.message.reply_text("🚫 أنت محظور من استخدام هذا البوت.")
+        return
+    register_user(user)
+    ctx.user_data.clear()
+    name     = user.full_name or "بدون اسم"
+    username = f"@{user.username}" if user.username else "لا يوزر"
+    await notify_owner(ctx.bot,
+        f"🆕 *دخول جديد!*\n👤 {name}  |  {username}\n🆔 `{user.id}`")
+    await update.message.reply_text(
+        "🤖 *karasven AI*\n\nأول بوت لعشّاق البرمجة في تيليجرام!\nاختر ما تريد 👇",
+        reply_markup=main_keyboard(), parse_mode="Markdown")
+
+# ══════════════════════════════════════════════
+#  أوامر المالك
+# ══════════════════════════════════════════════
+async def cmd_ban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID: return
+    if not ctx.args:
+        await update.message.reply_text("استخدام: /ban [ID] [سبب اختياري]"); return
+    try:
+        target_id = int(ctx.args[0])
+        reason = " ".join(ctx.args[1:]) or "بدون سبب"
+        c.execute("INSERT OR REPLACE INTO banned_users(user_id,reason,banned_at) VALUES(?,?,?)",
+                  (target_id, reason, datetime.now().strftime("%Y-%m-%d %H:%M")))
+        conn.commit()
+        await update.message.reply_text(f"✅ تم حظر `{target_id}` — السبب: {reason}", parse_mode="Markdown")
+        try:
+            await ctx.bot.send_message(target_id, "🚫 تم حظرك من استخدام هذا البوت.")
+        except: pass
+    except ValueError:
+        await update.message.reply_text("❌ ID غير صحيح")
+
+async def cmd_unban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID: return
+    if not ctx.args:
+        await update.message.reply_text("استخدام: /unban [ID]"); return
+    try:
+        target_id = int(ctx.args[0])
+        c.execute("DELETE FROM banned_users WHERE user_id=?", (target_id,))
+        conn.commit()
+        await update.message.reply_text(f"✅ تم رفع الحظر عن `{target_id}`", parse_mode="Markdown")
+    except ValueError:
+        await update.message.reply_text("❌ ID غير صحيح")
+
+async def cmd_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID: return
+    c.execute("SELECT user_id, full_name, username, first_seen FROM users ORDER BY first_seen DESC LIMIT 20")
+    rows = c.fetchall()
+    if not rows:
+        await update.message.reply_text("لا يوجد مستخدمون بعد."); return
+    text = f"👥 *المستخدمون ({len(rows)}):*\n\n"
+    for r in rows:
+        uname = f"@{r[2]}" if r[2] else "لا يوزر"
+        text += f"• `{r[0]}` — {r[1]} ({uname}) — {r[3]}\n"
+    await update.message.reply_text(text[:4000], parse_mode="Markdown")
+
+async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID: return
+    if not ctx.args:
+        await update.message.reply_text("استخدام: /broadcast [الرسالة]"); return
+    msg = " ".join(ctx.args)
+    users = all_users()
+    sent = 0
+    for uid in users:
+        try:
+            await ctx.bot.send_message(uid, f"📢 *إعلان من المالك:*\n\n{msg}", parse_mode="Markdown")
+            sent += 1
+            await asyncio.sleep(0.05)
+        except: pass
+    await update.message.reply_text(f"✅ تم الإرسال لـ {sent}/{len(users)} مستخدم")
+
+# ══════════════════════════════════════════════
+#  CallbackQuery Handlers — القوائم
+# ══════════════════════════════════════════════
+async def menu_exec(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("💻 *اختر لغة البرمجة:*", parse_mode="Markdown", reply_markup=exec_keyboard())
+
+async def menu_ai(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("🤖 *أدوات الذكاء الاصطناعي:*", parse_mode="Markdown", reply_markup=ai_keyboard())
+
+async def menu_learn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("🎓 *تعلّم البرمجة:*", parse_mode="Markdown", reply_markup=learn_keyboard())
+
+async def menu_tools(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("🔧 *الأدوات المساعدة:*", parse_mode="Markdown", reply_markup=tools_keyboard())
+
+async def back_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear()
+    await q.edit_message_text("🤖 *karasven AI*\n\nاختر ما تريد 👇",
+                               reply_markup=main_keyboard(), parse_mode="Markdown")
+
+# ══════════════════════════════════════════════
+#  اختيار لغة التنفيذ
+# ══════════════════════════════════════════════
+LANG_NAMES = {'py': 'Python 🐍', 'java': 'Java ☕', 'js': 'JavaScript 🟨',
+              'cpp': 'C++ 🔵', 'bash': 'Bash ⚡'}
+
+async def select_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    lang = q.data.split('_')[1]
+    ctx.user_data.clear()
+    ctx.user_data['mode'] = 'exec'
+    ctx.user_data['lang'] = lang
+    await q.edit_message_text(
+        f"📝 أرسل كود *{LANG_NAMES.get(lang, lang)}* وسأنفذه فوراً:\n\n"
+        f"_(أو أرسل ملف `.{lang}` مباشرة)_",
+        parse_mode="Markdown")
+
+# ══════════════════════════════════════════════
+#  أزرار AI
+# ══════════════════════════════════════════════
+async def generate_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'generate'
+    await q.edit_message_text(
+        "🤖 *كود من فكرة*\n\nأرسل فكرة مشروعك وأذكر اللغة إن أردت\n_(مثال: برنامج Python لإدارة مهام)_",
+        parse_mode="Markdown")
+
+async def ai_review_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'ai_review'
+    await q.edit_message_text("🔍 *مراجعة كود*\n\nأرسل كودك وسأعطيك تقرير كامل عن:\nالجودة • الأداء • الأمان • اقتراحات التحسين",
+                               parse_mode="Markdown")
+
+async def ai_explain_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'ai_explain'
+    await q.edit_message_text("📝 *شرح كود*\n\nأرسل أي كود وسأشرحه لك سطراً بسطر بالعربي:", parse_mode="Markdown")
+
+async def ai_convert_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'ai_convert'
+    await q.edit_message_text(
+        "🔄 *تحويل لغات*\n\nأرسل كودك مع ذكر اللغة المستهدفة\n_(مثال: حوّل هذا لـ JavaScript)_\n\nثم أرسل الكود:",
+        parse_mode="Markdown")
+
+async def ai_docs_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'ai_docs'
+    await q.edit_message_text("📄 *توثيق تلقائي*\n\nأرسل كودك وسأكتب له:\n• Docstrings • README • شرح الدوال",
+                               parse_mode="Markdown")
+
+# ══════════════════════════════════════════════
+#  أزرار التعلّم
+# ══════════════════════════════════════════════
+async def challenge_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    today = date.today().isoformat()
+    c.execute("SELECT challenge FROM daily_challenges WHERE date=?", (today,))
+    row = c.fetchone()
+    if row:
+        challenge = row[0]
+    else:
+        await q.edit_message_text("⏳ جاري توليد تحدي اليوم...")
+        challenge = ai_generate(
+            "أنشئ تحدي برمجي يومي متوسط الصعوبة بالعربية.\n"
+            "اكتب: العنوان، وصف المشكلة، مثال الدخل والخرج المتوقع، ثم تلميح.\n"
+            "لا تكتب الحل."
+        )
+        c.execute("INSERT OR IGNORE INTO daily_challenges(date,challenge) VALUES(?,?)", (today, challenge))
+        conn.commit()
+    await q.edit_message_text(
+        f"🎯 *تحدي اليوم — {today}*\n\n{challenge[:2000]}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ عرض الحل", callback_data="challenge_sol")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
+        ])
+    )
+
+async def challenge_sol_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    today = date.today().isoformat()
+    c.execute("SELECT challenge FROM daily_challenges WHERE date=?", (today,))
+    row = c.fetchone()
+    if not row:
+        await q.edit_message_text("❌ لا يوجد تحدي اليوم بعد.", reply_markup=back_keyboard())
+        return
+    await q.edit_message_text("⏳ جاري توليد الحل...")
+    sol = ai_generate(f"أعطني حل Python كامل لهذا التحدي:\n{row[0]}")
+    try:
+        await q.edit_message_text(f"✅ *الحل:*\n{sol[:3000]}", parse_mode="Markdown", reply_markup=back_keyboard())
+    except:
+        await q.edit_message_text(f"✅ الحل:\n{sol[:3000]}", reply_markup=back_keyboard())
+
+async def learn_concept_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'learn_concept'
+    await q.edit_message_text("❓ *شرح مفهوم*\n\nأرسل اسم المفهوم الذي تريد فهمه\n_(مثال: ما هو الـ OOP؟ أو ما هي الـ recursion?)_",
+                               parse_mode="Markdown")
+
+async def learn_quiz_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'quiz_start'
+    levels = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🟢 مبتدئ",    callback_data="quiz_easy")],
+        [InlineKeyboardButton("🟡 متوسط",    callback_data="quiz_medium")],
+        [InlineKeyboardButton("🔴 متقدم",    callback_data="quiz_hard")],
+        [InlineKeyboardButton("🔙 رجوع",     callback_data="back")]
+    ])
+    await q.edit_message_text("📝 *اختبر معرفتك*\n\nاختر مستوى السؤال:", parse_mode="Markdown", reply_markup=levels)
+
+async def quiz_level(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    level_map = {'quiz_easy': 'مبتدئ', 'quiz_medium': 'متوسط', 'quiz_hard': 'متقدم'}
+    level = level_map.get(q.data, 'متوسط')
+    await q.edit_message_text("⏳ جاري توليد السؤال...")
+    question = ai_generate(
+        f"أنشئ سؤال اختيار من متعدد في البرمجة بمستوى {level}.\n"
+        "الصيغة:\n❓ السؤال\nأ) ...\nب) ...\nج) ...\nد) ...\nالجواب الصحيح: (حرف فقط)"
+    )
+    ctx.user_data['mode'] = 'quiz_answer'
+    ctx.user_data['quiz'] = question
+    # استخراج الإجابة
+    ans_line = [l for l in question.split('\n') if l.strip().startswith('الجواب')]
+    ctx.user_data['quiz_ans'] = ans_line[0] if ans_line else "?"
+    # إخفاء الإجابة
+    display = '\n'.join(l for l in question.split('\n') if not l.strip().startswith('الجواب'))
+    try:
+        await q.edit_message_text(f"📝 *السؤال:*\n\n{display[:1500]}\n\n✏️ أرسل حرف إجابتك (أ / ب / ج / د):",
+                                   parse_mode="Markdown")
+    except:
+        await q.edit_message_text(f"السؤال:\n{display[:1500]}\n\nأرسل حرف إجابتك:")
+
+# ══════════════════════════════════════════════
+#  أزرار الأدوات
+# ══════════════════════════════════════════════
+async def tool_api_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_api'
+    await q.edit_message_text("🔌 *قارئ API*\n\nأرسل رابط API وسأجلب البيانات وأشرحها:\n_(مثال: https://api.github.com/users/torvalds)_",
+                               parse_mode="Markdown")
+
+async def tool_json_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_json'
+    await q.edit_message_text("🔄 *محوّل JSON ↔ Python*\n\nأرسل JSON وسأحوله لـ Python dict، أو أرسل Python dict وسأحوله لـ JSON:",
+                               parse_mode="Markdown")
+
+async def tool_detect_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_detect'
+    await q.edit_message_text("🔍 *كشف لغة الكود*\n\nأرسل أي كود وسأخبرك بلغته وأعطيك معلومات عنه:",
+                               parse_mode="Markdown")
+
+async def tool_share_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_share'
+    await q.edit_message_text("🔗 *مشاركة الكود*\n\nأرسل الكود وسأنشئ لك رابط مشاركة:",
+                               parse_mode="Markdown")
+
+async def tool_install_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_install'
+    await q.edit_message_text(
+        "📦 *تثبيت مكتبة Python*\n\n"
+        "اكتب اسم المكتبة أو أكثر من مكتبة مفصولة بمسافات:\n\n"
+        "📌 *أمثلة:*\n"
+        "`numpy`\n"
+        "`pandas matplotlib seaborn`\n"
+        "`requests beautifulsoup4`",
+        parse_mode="Markdown"
+    )
+
+async def tool_git_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_git'
+    await q.edit_message_text(
+        "🐙 *شارح Git*\n\n"
+        "أرسل أي أمر Git وسأشرحه بالعربي بالتفصيل:\n\n"
+        "📌 *أمثلة:*\n"
+        "`git rebase -i HEAD~3`\n"
+        "`git stash pop`\n"
+        "`git cherry-pick abc1234`",
+        parse_mode="Markdown")
+
+async def tool_complexity_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_complexity'
+    await q.edit_message_text(
+        "⏱️ *محلل تعقيد الكود*\n\n"
+        "أرسل الكود وسأحلل:\n"
+        "• ⏱️ تعقيد الزمن Big O\n"
+        "• 💾 تعقيد الذاكرة\n"
+        "• 🔍 تحليل كل loop ودالة\n"
+        "• 💡 اقتراحات تحسين الأداء",
+        parse_mode="Markdown")
+
+async def tool_regex_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'tool_regex'
+    await q.edit_message_text(
+        "🔎 *Regex Tester*\n\n"
+        "أرسل برسالة واحدة بهذا الشكل:\n"
+        "`pattern|||النص للاختبار`\n\n"
+        "📌 *مثال:*\n"
+        r"`\d{3}-\d{4}|||رقمي 055-1234 أو 123-456`"
+        "\n\nأو أرسل pattern فقط وسأشرحه لك.",
+        parse_mode="Markdown")
+
+async def autofix_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    code  = ctx.user_data.get('autofix_code', '')
+    lang  = ctx.user_data.get('autofix_lang', 'py')
+    error = ctx.user_data.get('autofix_error', '')
+    if not code:
+        await q.edit_message_text("❌ لا يوجد كود للتصحيح.", reply_markup=back_keyboard()); return
+    await q.edit_message_text("🔧 جاري تصحيح الكود بالذكاء الاصطناعي...")
+    fixed = ai_generate(
+        f"صلّح هذا الكود {lang}.\n\n"
+        f"الخطأ:\n{error}\n\n"
+        f"الكود:\n{code}\n\n"
+        "أعطني الكود المُصحَّح كاملاً داخل ```language...``` مع شرح قصير عن سبب الخطأ."
+    )
+    try:
+        await q.edit_message_text(
+            f"✅ *الكود بعد التصحيح:*\n\n{fixed[:3500]}",
+            parse_mode="Markdown",
+            reply_markup=back_keyboard())
+    except:
+        await q.edit_message_text(f"✅ الكود المُصحَّح:\n{fixed[:3500]}", reply_markup=back_keyboard())
+    ctx.user_data.clear()
+
+async def game_guess_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("⏳ جاري تحضير اللغز...")
+    puzzle = ai_generate(
+        "أنشئ لغز برمجي Python قصير (3-5 أسطر كحد أقصى).\n"
+        "الصيغة الإلزامية:\n"
+        "الكود:\n```python\nاكتب الكود هنا\n```\n"
+        "الإجابة: [ما يطبعه print() بالضبط]\n"
+        "الشرح: [جملة واحدة تشرح لماذا]\n\n"
+        "مهم: لا تضع print في الكود، فقط العمليات، وأخبر المستخدم ما قيمة آخر متغير."
+    )
+    lines  = puzzle.split('\n')
+    ans    = next((l.replace('الإجابة:', '').strip() for l in lines if 'الإجابة:' in l), '؟')
+    expl   = next((l.replace('الشرح:', '').strip()   for l in lines if 'الشرح:'   in l), '')
+    display = '\n'.join(l for l in lines if 'الإجابة:' not in l and 'الشرح:' not in l)
+    ctx.user_data['mode']            = 'game_guess'
+    ctx.user_data['game_answer']     = ans
+    ctx.user_data['game_explanation'] = expl
+    try:
+        await q.edit_message_text(
+            f"🎮 *خمّن النتيجة!*\n\n{display[:1800]}\n\n✏️ ما هو الـ output؟ أرسل إجابتك:",
+            parse_mode="Markdown")
+    except:
+        await q.edit_message_text(f"🎮 خمّن النتيجة!\n\n{display[:1800]}\n\nأرسل إجابتك:")
+
+# ══════════════════════════════════════════════
+#  باقي الأزرار
+# ══════════════════════════════════════════════
+async def chat_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    clear_chat_history(update.effective_user.id)
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'chat'
+    await q.edit_message_text(
+        "💬 *محادثة ذكية*\n\nاسألني أي شيء في البرمجة أو الأكواد 👇",
+        parse_mode="Markdown")
+
+async def host_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear()
+    await q.edit_message_text(
+        "🌐 *اختر طريقة الاستضافة:*\n\n"
+        "🐙 *GitHub Pages* — موقع دائم على GitHub (HTML/CSS/JS)\n"
+        "🔹 *paste.rs* — ملف نصي برابط مباشر (TXT)\n",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🐙 GitHub Pages", callback_data="host_github")],
+            [InlineKeyboardButton("📄 ملف TXT (paste.rs)", callback_data="host_txt")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
+        ]))
+
+async def host_github_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data['mode'] = 'host_github'
+    await q.edit_message_text(
+        "🐙 *استضافة GitHub Pages*\n\n"
+        "✅ موقع دائم على GitHub\n"
+        "✅ رابط `username.github.io/repo`\n"
+        "✅ يدعم HTML + CSS + JavaScript\n\n"
+        "📤 أرسل كود HTML الآن:",
+        parse_mode="Markdown")
+
+async def host_txt_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data['mode'] = 'host_txt'
+    await q.edit_message_text(
+        "📄 *مشاركة ملف نصي*\n\n"
+        "✅ رابط مباشر للمحتوى\n"
+        "✅ بدون حساب\n\n"
+        "📝 أرسل النص الآن:",
+        parse_mode="Markdown")
+
+async def host_deploy_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    uid   = update.effective_user.id
+    code  = ctx.user_data.get('host_code', '')
+    fname = ctx.user_data.get('host_filename', 'index.html')
+    if not code:
+        db_code, db_fname = get_pending_deploy(uid)
+        code  = db_code  or ''
+        fname = db_fname or 'index.html'
+    if not code:
+        await q.edit_message_text(
+            "⚠️ أرسل كود HTML أولاً ثم اضغط الزر:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="back")]]))
+        ctx.user_data['mode'] = 'host_github'
+        return
+    await q.edit_message_text("⏳ جاري الرفع على GitHub Pages...")
+    result, err = await deploy_to_github_pages(code, fname, uid)
+    if result:
+        pages_url, repo_url = result
+        save_deployment(uid, pages_url, fname)
+        clear_pending_deploy(uid)
+        await q.edit_message_text(
+            f"✅ *تم النشر على GitHub Pages!*\n\n"
+            f"🌐 رابط موقعك:\n`{pages_url}`\n\n"
+            f"📁 الريبو:\n`{repo_url}`\n\n"
+            f"⏳ _قد يستغرق ظهور الموقع 1-2 دقيقة_",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 افتح الموقع", url=pages_url)],
+                [InlineKeyboardButton("📁 الريبو",      url=repo_url)],
+                [InlineKeyboardButton("🔙 رجوع",        callback_data="back")]
+            ]))
+    else:
+        await q.edit_message_text(f"❌ *فشل النشر*\n{err}", parse_mode="Markdown", reply_markup=back_keyboard())
+    ctx.user_data.clear()
+
+async def leaderboard_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    rows = get_leaderboard()
+    if not rows:
+        await q.edit_message_text("📊 لا توجد بيانات بعد.", reply_markup=back_keyboard()); return
+    medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+    text = "📊 *لوحة المتصدرين:*\n\n"
+    for i, (name, ex, ai) in enumerate(rows):
+        total = ex + ai
+        text += f"{medals[i]} *{name}*\n   ⚡ {ex} تنفيذ  |  🤖 {ai} AI  |  مجموع: {total}\n\n"
+    await q.edit_message_text(text[:3500], parse_mode="Markdown", reply_markup=back_keyboard())
+
+async def show_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    uid = update.effective_user.id
+    try:
+        projects = get_projects(uid)
+        if not projects:
+            await q.edit_message_text("📂 لا توجد مشاريع بعد.\n\nابدأ بتنفيذ أو توليد كود!", reply_markup=back_keyboard())
+            return
+        text = "📂 *آخر مشاريعك:*\n\n"
+        for p in projects[:6]:
+            preview = str(p[1])[:60].replace('\n', ' ').replace('*','').replace('`','')
+            text += f"🔹 `{p[3]}` — *{p[2]}*\n   {preview}...\n\n"
+        await q.edit_message_text(text[:3800], parse_mode="Markdown", reply_markup=back_keyboard())
+    except Exception as e:
+        await q.edit_message_text(f"⚠️ خطأ: {e}", reply_markup=back_keyboard())
+
+async def stats_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    uid = update.effective_user.id
+    try:
+        ex, ai_c = get_stats(uid)
+        projs   = len(get_projects(uid))
+        deploys = get_deployments(uid)
+        text = (f"📈 *إحصائياتك:*\n\n"
+                f"⚡ أكواد نفّذتها: `{ex}`\n"
+                f"🤖 طلبات AI: `{ai_c}`\n"
+                f"📁 مشاريع محفوظة: `{projs}`\n"
+                f"🌐 مواقع رُفعت: `{len(deploys)}`")
+        if deploys:
+            text += "\n\n🌐 *آخر نشراتك:*\n"
+            for d in deploys[:3]:
+                text += f"• [{d[1][:30]}]({d[0]})\n"
+        await q.edit_message_text(text, parse_mode="Markdown",
+                                   reply_markup=back_keyboard(), disable_web_page_preview=True)
+    except Exception as e:
+        await q.edit_message_text(f"⚠️ خطأ: {e}", reply_markup=back_keyboard())
+
+async def how_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text(
+        "📖 *دليل karasven AI*\n\n"
+        "💻 *تنفيذ كود* — Python, Java, JS, C++, Bash\n"
+        "🤖 *أدوات AI* — توليد، مراجعة، شرح، تحويل، توثيق\n"
+        "💬 *محادثة ذكية* — أسئلة وأجوبة برمجية\n"
+        "🎓 *تعلّم* — تحدي يومي، اختبار، شرح مفاهيم\n"
+        "🌐 *استضافة* — ارفع موقعك HTML/Flask مجاناً\n"
+        "🔧 *أدوات* — قارئ API، محوّل JSON، كشف لغة، مشاركة كود\n"
+        "📊 *المتصدرين* — لوحة أفضل المستخدمين\n\n"
+        "🧠 Gemini 2.5 Flash  |  📞 @A1_F4Y",
+        parse_mode="Markdown", reply_markup=back_keyboard())
+
+async def clear_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    uid = update.effective_user.id
+    c.execute("DELETE FROM projects WHERE user_id=?", (uid,))
+    clear_chat_history(uid)
+    conn.commit()
+    await q.edit_message_text("🗑️ تم مسح كل مشاريعك وسجل المحادثات.", reply_markup=back_keyboard())
+
+# ══════════════════════════════════════════════
+#  معالج الرسائل النصية الموحّد
+# ══════════════════════════════════════════════
+async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_banned(user.id):
+        await update.message.reply_text("🚫 أنت محظور."); return
+    register_user(user)
+
+    text = update.message.text or ""
+    uid  = user.id
+    mode = ctx.user_data.get('mode')
+
+    # ── رد المالك على مستخدم ──
+    if uid == OWNER_ID and update.message.reply_to_message:
+        admin_reply_msg_id = update.message.reply_to_message.message_id
+        target_uid = get_user_from_admin_msg(admin_reply_msg_id)
+        if target_uid:
+            try:
+                await ctx.bot.send_message(target_uid,
+                    f"📨 *رد من المالك:*\n\n{text}", parse_mode="Markdown")
+                await update.message.reply_text("✅ تم إرسال ردك للمستخدم.")
+            except Exception as e:
+                await update.message.reply_text(f"❌ فشل الإرسال: {e}")
+            return
+
+    # ── إعادة توجيه كل رسالة للمالك ──
+    if uid != OWNER_ID:
+        await forward_to_owner(ctx.bot, user, text)
+
+    if not mode:
+        await update.message.reply_text(
+            "👋 اختر ما تريد من القائمة:",
+            reply_markup=main_keyboard())
+        return
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # تنفيذ الكود
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if mode == 'exec':
+        lang = ctx.user_data.get('lang', 'py')
+        msg  = await update.message.reply_text(f"⏳ جاري تنفيذ كود {LANG_NAMES.get(lang, lang)}...")
+        inc_exec(uid); save_project(uid, text, lang)
+        output = await run_code(lang, text)
+        try:
+            await msg.edit_text(f"📤 *نتيجة التنفيذ ({LANG_NAMES.get(lang, lang)}):*\n```\n{output}\n```", parse_mode="Markdown")
+        except:
+            await msg.edit_text(f"📤 نتيجة التنفيذ:\n{output}")
+        await update.message.reply_text("🔁 أرسل كوداً آخر أو:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # كود من فكرة
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'generate':
+        msg = await update.message.reply_text("🤖 جاري توليد الكود...")
+        try:
+            inc_ai(uid)
+            code = ai_generate(
+                f"أنت مبرمج خبير. اكتب كوداً كاملاً وجاهزاً للتشغيل بناءً على:\n{text}\n\n"
+                "قواعد: كود نظيف + تعليقات عربية + داخل ```language ... ``` فقط."
+            )
+            save_project(uid, code, "AI")
+            try:
+                await msg.edit_text(f"✅ *الكود جاهز:*\n{code[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"✅ الكود جاهز:\n{code[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # مراجعة كود
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'ai_review':
+        msg = await update.message.reply_text("🔍 جاري مراجعة الكود...")
+        try:
+            inc_ai(uid)
+            review = ai_generate(
+                f"راجع هذا الكود وأعطني تقريراً بالعربية يشمل:\n"
+                f"1. ✅ نقاط القوة\n2. ⚠️ المشاكل والأخطاء\n"
+                f"3. ⚡ الأداء والسرعة\n4. 🔒 الأمان\n5. 💡 اقتراحات تحسين\n\nالكود:\n{text}"
+            )
+            try:
+                await msg.edit_text(f"📋 *تقرير مراجعة الكود:*\n\n{review[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"📋 تقرير مراجعة الكود:\n\n{review[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # شرح كود
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'ai_explain':
+        msg = await update.message.reply_text("📝 جاري شرح الكود...")
+        try:
+            inc_ai(uid)
+            expl = ai_generate(
+                f"اشرح هذا الكود بالعربية بشكل مبسط وواضح:\n"
+                f"- اذكر اللغة ووظيفة الكود\n- اشرح كل جزء مهم\n- اذكر ما يفعله سطراً بسطر إن كان قصيراً\n\nالكود:\n{text}"
+            )
+            try:
+                await msg.edit_text(f"📝 *شرح الكود:*\n\n{expl[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"📝 شرح الكود:\n\n{expl[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # تحويل لغات
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'ai_convert':
+        msg = await update.message.reply_text("🔄 جاري تحويل الكود...")
+        try:
+            inc_ai(uid)
+            converted = ai_generate(
+                f"حوّل هذا الكود للغة المطلوبة مع الحفاظ على نفس الوظيفة:\n{text}\n\n"
+                "أجب بالكود المحوّل فقط داخل ``` ... ``` + جملة واحدة توضح ما تغيّر."
+            )
+            try:
+                await msg.edit_text(f"🔄 *الكود المحوّل:*\n{converted[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"🔄 الكود المحوّل:\n{converted[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # توثيق تلقائي
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'ai_docs':
+        msg = await update.message.reply_text("📄 جاري كتابة التوثيق...")
+        try:
+            inc_ai(uid)
+            docs = ai_generate(
+                f"اكتب توثيقاً كاملاً لهذا الكود يشمل:\n"
+                f"1. README مختصر\n2. Docstrings لكل دالة\n3. وصف المعاملات والقيم المُرجعة\n\nالكود:\n{text}"
+            )
+            try:
+                await msg.edit_text(f"📄 *التوثيق:*\n{docs[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"📄 التوثيق:\n{docs[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # شرح مفهوم
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'learn_concept':
+        msg = await update.message.reply_text("❓ جاري شرح المفهوم...")
+        try:
+            inc_ai(uid)
+            expl = ai_generate(
+                f"اشرح '{text}' في البرمجة بالعربية بأسلوب بسيط ومقنع:\n"
+                f"1. تعريف واضح\n2. لماذا يُستخدم؟\n3. مثال كود بسيط\n4. متى لا تستخدمه؟"
+            )
+            try:
+                await msg.edit_text(f"❓ *شرح: {text}*\n\n{expl[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"❓ شرح: {text}\n\n{expl[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # إجابة الاختبار
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'quiz_answer':
+        correct_line = ctx.user_data.get('quiz_ans', '')
+        answer = text.strip()
+        correct_letter = ""
+        if correct_line:
+            for part in correct_line.split():
+                if part in ['أ','ب','ج','د','a','b','c','d']:
+                    correct_letter = part; break
+        if correct_letter and (answer == correct_letter or answer.lower() == correct_letter.lower()):
+            result = "✅ *إجابة صحيحة!* 🎉"
+        else:
+            result = f"❌ *إجابة خاطئة.*\n{correct_line}"
+        await update.message.reply_text(result, parse_mode="Markdown",
+                                         reply_markup=InlineKeyboardMarkup([
+                                             [InlineKeyboardButton("🔄 سؤال جديد", callback_data="learn_quiz")],
+                                             [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
+                                         ]))
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # قارئ API
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_api':
+        msg = await update.message.reply_text("🔌 جاري جلب البيانات...")
+        try:
+            url = text.strip()
+            resp = req.get(url, timeout=10, headers={"User-Agent": "karasven-bot/1.0"})
+            try:
+                data = json.dumps(resp.json(), ensure_ascii=False, indent=2)[:1500]
+            except:
+                data = resp.text[:1000]
+            summary = ai_generate(
+                f"لخّص بيانات هذا الـ API بالعربية في 3-5 نقاط مهمة:\n{data[:800]}"
+            )
+            reply = f"🔌 *استجابة API* — Status: `{resp.status_code}`\n\n```json\n{data}\n```\n\n📋 *الملخص:*\n{summary[:500]}"
+            try:
+                await msg.edit_text(reply[:4000], parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"Status: {resp.status_code}\n{data}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ في الجلب: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # محوّل JSON
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_json':
+        msg = await update.message.reply_text("🔄 جاري التحويل...")
+        try:
+            txt = text.strip()
+            if txt.startswith('{') or txt.startswith('['):
+                # JSON → Python
+                parsed = json.loads(txt)
+                result = f"```python\n{repr(parsed)}\n```"
+                label = "🔄 *JSON → Python dict:*"
+            else:
+                # Python → JSON
+                converted = ai_generate(f"حوّل هذا Python dict/list إلى JSON صحيح:\n{txt}\nأجب بـ JSON فقط.")
+                result = f"```json\n{converted[:1500]}\n```"
+                label = "🔄 *Python → JSON:*"
+            try:
+                await msg.edit_text(f"{label}\n{result}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"النتيجة:\n{result}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ في التحويل: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # كشف لغة الكود
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_detect':
+        msg = await update.message.reply_text("🔍 جاري تحليل الكود...")
+        try:
+            result = ai_generate(
+                f"حلّل هذا الكود وأخبرني:\n"
+                f"1. اللغة البرمجية\n2. الإصدار المحتمل\n3. ماذا يفعل\n4. هل فيه مشاكل واضحة؟\n\n{text}"
+            )
+            try:
+                await msg.edit_text(f"🔍 *تحليل الكود:*\n\n{result[:3000]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"🔍 تحليل الكود:\n\n{result[:3000]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # تثبيت مكتبة Python
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_install':
+        # تنظيف الإدخال — أسماء المكتبات فقط (حروف، أرقام، -, _, .)
+        import re as _re
+        raw_pkgs = text.strip().split()
+        safe_pkgs = [p for p in raw_pkgs if _re.match(r'^[a-zA-Z0-9_\-\.]+$', p)]
+        if not safe_pkgs:
+            await update.message.reply_text(
+                "⚠️ اسم المكتبة غير صحيح. استخدم أحرف إنجليزية فقط مثل: `numpy`",
+                parse_mode="Markdown", reply_markup=back_keyboard())
+            ctx.user_data.clear()
+            return
+        msg = await update.message.reply_text(
+            f"📦 جاري تثبيت: {' '.join(safe_pkgs)}\n⏳ قد يستغرق بضع ثوانٍ...")
+        _pip_target = os.path.join(os.path.dirname(sys.executable),
+                                   '..', 'lib',
+                                   f'python{sys.version_info.major}.{sys.version_info.minor}',
+                                   'site-packages')
+        _pip_target = os.path.normpath(_pip_target)
+        try:
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '--quiet',
+                 '--target', _pip_target] + safe_pkgs,
+                capture_output=True, text=True, timeout=120, encoding='utf-8', errors='replace'
+            )
+            if result.returncode == 0:
+                success_list = "\n".join(f"✅ {p}" for p in safe_pkgs)
+                await msg.edit_text(
+                    f"📦 تمّ التثبيت بنجاح!\n\n{success_list}\n\n"
+                    f"يمكنك الآن استخدامها في كودك مباشرةً 🚀",
+                    reply_markup=back_keyboard())
+            else:
+                # نظّف الرسالة من رموز Markdown
+                err = (result.stderr or result.stdout).strip()[:600]
+                await msg.edit_text(
+                    f"❌ فشل التثبيت:\n\n{err}",
+                    reply_markup=back_keyboard())
+        except subprocess.TimeoutExpired:
+            await msg.edit_text("⚠️ انتهت المهلة (120 ثانية). حاول مع مكتبة أصغر.",
+                                reply_markup=back_keyboard())
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}", reply_markup=back_keyboard())
+        ctx.user_data.clear()
+
+    # مشاركة الكود
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_share':
+        msg = await update.message.reply_text("🔗 جاري إنشاء رابط المشاركة...")
+        url = share_code(text)
+        if url:
+            await msg.edit_text(
+                f"🔗 *رابط الكود جاهز!*\n\n`{url}`",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔗 افتح الرابط", url=url)],
+                    [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
+                ]))
+        else:
+            await msg.edit_text("❌ فشل إنشاء الرابط. حاول مرة أخرى.", reply_markup=back_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # محادثة ذكية
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'chat':
+        msg = await update.message.reply_text("💬 جاري المعالجة...")
+        try:
+            history = get_chat_history(uid)
+            save_chat(uid, "user", text)
+            system = ("أنت karasven AI، مساعد برمجي خبير ومتعاون. "
+                      "تجيب بالعربية بأسلوب ودود. "
+                      "الأكواد داخل ```language ... ```.")
+            prompt = system + "\n\n"
+            if history:
+                prompt += "المحادثة:\n" + "\n".join(
+                    f"{'المستخدم' if r=='user' else 'karasven'}: {m}" for r,m in history) + "\n\n"
+            prompt += f"المستخدم: {text}"
+            inc_ai(uid)
+            reply = ai_generate(prompt)
+            save_chat(uid, "model", reply)
+            try:
+                await msg.edit_text(f"🤖 {reply[:3800]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"🤖 {reply[:3800]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # استضافة — استقبال الكود
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'host_github':
+        ctx.user_data['host_code']     = text
+        ctx.user_data['host_filename'] = 'index.html'
+        save_pending_deploy(uid, text, 'index.html')
+        await update.message.reply_text(
+            f"🐙 *جاهز للنشر على GitHub Pages!*\n\n"
+            f"📁 الملف: `index.html`\n\nاضغط 🚀 للرفع:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 ارفع الآن!", callback_data="host_deploy"),
+                 InlineKeyboardButton("❌ إلغاء",     callback_data="back")]
+            ]))
+
+    elif mode == 'host_txt':
+        msg = await update.message.reply_text("📤 جاري رفع الملف...")
+        url = share_code(text)
+        if url:
+            save_deployment(uid, url, "ملف نصي")
+            await msg.edit_text(
+                f"✅ *تم الرفع!*\n\n🔗 الرابط المباشر:\n`{url}`",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📄 افتح الملف", url=url)],
+                    [InlineKeyboardButton("🔙 رجوع",       callback_data="back")]
+                ]))
+        else:
+            await msg.edit_text("❌ فشل الرفع. حاول مرة أخرى.", reply_markup=back_keyboard())
+        ctx.user_data.clear()
+
+    elif mode == 'host_step1':
+        tl = text.lower()
+        if '<html' in tl or '<!doctype' in tl:
+            filename = 'index.html'
+        else:
+            filename = 'index.html'
+        ctx.user_data['host_code']     = text
+        ctx.user_data['host_filename'] = filename
+        await update.message.reply_text(
+            f"🐙 *جاهز للنشر على GitHub Pages!*\n\n📁 الملف: `{filename}`\n\nاضغط 🚀 للرفع:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 ارفع الآن!", callback_data="host_deploy"),
+                 InlineKeyboardButton("❌ إلغاء",     callback_data="back")]
+            ]))
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # مصحّح أخطاء ذكي
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'ai_debug':
+        msg = await update.message.reply_text("🐛 جاري تحليل الخطأ وإيجاد الحل...")
+        try:
+            inc_ai(uid)
+            result = ai_generate(
+                f"أنت مصحّح أخطاء خبير. حلّل هذا الخطأ أو الكود المعطوب بالعربية:\n\n{text}\n\n"
+                f"أجب بهذا الترتيب:\n"
+                f"1. 🔍 *سبب الخطأ*: اشرح لماذا حدث\n"
+                f"2. ✅ *الكود المُصحَّح*: اكتبه كاملاً داخل ```\n"
+                f"3. 💡 *نصيحة*: كيف تتجنب هذا الخطأ مستقبلاً"
+            )
+            try:
+                await msg.edit_text(f"🐛 *تقرير التصحيح:*\n\n{result[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"🐛 تقرير التصحيح:\n\n{result[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # شارح Git
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_git':
+        msg = await update.message.reply_text("🐙 جاري شرح أمر Git...")
+        try:
+            inc_ai(uid)
+            result = ai_generate(
+                f"اشرح أمر Git التالي بالعربية بالتفصيل:\n`{text}`\n\n"
+                f"اذكر: ماذا يفعل، متى تستخدمه، أمثلة عملية، تحذيرات إن وجدت."
+            )
+            try:
+                await msg.edit_text(f"🐙 *شرح الأمر:*\n\n{result[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"🐙 شرح الأمر:\n\n{result[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # محلل التعقيد
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_complexity':
+        msg = await update.message.reply_text("⏱️ جاري تحليل تعقيد الكود...")
+        try:
+            inc_ai(uid)
+            result = ai_generate(
+                f"حلّل تعقيد هذا الكود بالعربية:\n{text}\n\n"
+                f"اذكر:\n• ⏱️ تعقيد الزمن Big O\n• 💾 تعقيد الذاكرة\n"
+                f"• 🔍 تحليل كل loop ودالة\n• 💡 اقتراحات لتحسين الأداء"
+            )
+            try:
+                await msg.edit_text(f"⏱️ *تحليل التعقيد:*\n\n{result[:3500]}", parse_mode="Markdown")
+            except:
+                await msg.edit_text(f"⏱️ تحليل التعقيد:\n\n{result[:3500]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Regex Tester
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'tool_regex':
+        msg = await update.message.reply_text("🔎 جاري تحليل Regex...")
+        try:
+            import re as _re
+            if '|||' in text:
+                parts   = text.split('|||', 1)
+                pattern = parts[0].strip()
+                test_str = parts[1].strip()
+                try:
+                    matches = _re.findall(pattern, test_str)
+                    match_count = len(matches)
+                    result_text = (
+                        f"🔎 *نتيجة Regex:*\n\n"
+                        f"📌 Pattern: `{pattern}`\n"
+                        f"📝 النص: `{test_str[:200]}`\n\n"
+                        f"{'✅' if matches else '❌'} وُجد `{match_count}` تطابق\n"
+                    )
+                    if matches:
+                        result_text += f"🎯 التطابقات: `{matches[:10]}`\n"
+                    explanation = ai_generate(f"اشرح Regex هذا بالعربية في جملتين: `{pattern}`")
+                    result_text += f"\n💡 *الشرح:* {explanation[:300]}"
+                    try:
+                        await msg.edit_text(result_text, parse_mode="Markdown")
+                    except:
+                        await msg.edit_text(result_text.replace('`',''))
+                except _re.error as e:
+                    await msg.edit_text(f"❌ خطأ في الـ Pattern: `{e}`", parse_mode="Markdown")
+            else:
+                inc_ai(uid)
+                explanation = ai_generate(
+                    f"اشرح هذا الـ Regex بالعربية بالتفصيل: `{text}`\n"
+                    f"اذكر: ماذا يطابق، أجزاؤه، وأمثلة عملية."
+                )
+                try:
+                    await msg.edit_text(f"🔎 *شرح Regex:*\n\n{explanation[:3000]}", parse_mode="Markdown")
+                except:
+                    await msg.edit_text(f"🔎 شرح Regex:\n\n{explanation[:3000]}")
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        await update.message.reply_text("🔁 اختر:", reply_markup=main_keyboard())
+        ctx.user_data.clear()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # لعبة خمّن النتيجة
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    elif mode == 'game_guess':
+        correct  = ctx.user_data.get('game_answer', '')
+        expl     = ctx.user_data.get('game_explanation', '')
+        user_ans = text.strip()
+        if correct and user_ans.lower() == correct.lower():
+            result_text = f"✅ *إجابة صحيحة!* 🎉\n\n💡 {expl}"
+        else:
+            result_text = f"❌ *إجابة خاطئة!*\n\n🎯 الإجابة الصحيحة: `{correct}`\n\n💡 {expl}"
+        try:
+            await update.message.reply_text(
+                result_text, parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 لعبة جديدة", callback_data="game_guess")],
+                    [InlineKeyboardButton("🔙 رجوع",       callback_data="back")]
+                ]))
+        except:
+            await update.message.reply_text(
+                result_text.replace('`',''),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 لعبة جديدة", callback_data="game_guess")],
+                    [InlineKeyboardButton("🔙 رجوع",       callback_data="back")]
+                ]))
+        ctx.user_data.clear()
+
+# ══════════════════════════════════════════════
+#  معالج رفع الملفات (.py, .js, .cpp, .java)
+# ══════════════════════════════════════════════
+async def handle_document(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if is_banned(user.id): return
+    register_user(user)
+    doc: Document = update.message.document
+    if not doc: return
+    fname = doc.file_name or "file"
+    ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ""
+    lang_map = {'py': 'py', 'js': 'js', 'java': 'java', 'cpp': 'cpp', 'sh': 'bash', 'c': 'cpp'}
+    lang = lang_map.get(ext)
+
+    # ── إذا المستخدم اختار GitHub Pages → ارفع أي ملف عليه ──
+    if ctx.user_data.get('mode') in ('host_github', 'host_step1'):
+        msg = await update.message.reply_text(f"📥 جاري رفع `{fname}` على GitHub Pages...", parse_mode="Markdown")
+        try:
+            file = await doc.get_file()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}') as tmp:
+                await file.download_to_drive(tmp.name)
+                with open(tmp.name, 'rb') as f:
+                    raw = f.read()
+                os.unlink(tmp.name)
+            try:
+                content = raw.decode('utf-8')
+            except Exception:
+                content = raw.decode('latin-1')
+            result, err = await deploy_to_github_pages(content, fname, user.id)
+            if result:
+                pages_url, repo_url = result
+                save_deployment(user.id, pages_url, fname)
+                await msg.edit_text(
+                    f"✅ *تم النشر على GitHub Pages!*\n\n"
+                    f"🌐 رابط موقعك:\n`{pages_url}`\n\n"
+                    f"📁 الريبو:\n`{repo_url}`\n\n"
+                    f"⏳ _قد يستغرق ظهور الموقع 1-2 دقيقة_",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🌐 افتح الموقع", url=pages_url)],
+                        [InlineKeyboardButton("📁 الريبو",      url=repo_url)],
+                        [InlineKeyboardButton("🔙 رجوع",        callback_data="back")]
+                    ]))
+            else:
+                await msg.edit_text(f"❌ فشل النشر: {err}", reply_markup=back_keyboard())
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        ctx.user_data.clear()
+        return
+
+    # ── ملف HTML مباشرة (بدون اختيار مسبق) → GitHub Pages ──
+    if ext == 'html':
+        msg = await update.message.reply_text(f"📥 جاري تنزيل ورفع `{fname}` على GitHub Pages...", parse_mode="Markdown")
+        try:
+            file = await doc.get_file()
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.html') as tmp:
+                await file.download_to_drive(tmp.name)
+                with open(tmp.name, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                os.unlink(tmp.name)
+            result, err = await deploy_to_github_pages(content, fname, user.id)
+            if result:
+                pages_url, repo_url = result
+                save_deployment(user.id, pages_url, fname)
+                await msg.edit_text(
+                    f"✅ *تم النشر على GitHub Pages!*\n\n"
+                    f"🌐 رابط موقعك:\n`{pages_url}`\n\n"
+                    f"📁 الريبو:\n`{repo_url}`\n\n"
+                    f"⏳ _قد يستغرق ظهور الموقع 1-2 دقيقة_",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🌐 افتح الموقع", url=pages_url)],
+                        [InlineKeyboardButton("📁 الريبو",      url=repo_url)],
+                        [InlineKeyboardButton("🔙 رجوع",        callback_data="back")]
+                    ]))
+            else:
+                await msg.edit_text(f"❌ فشل النشر: {err}", reply_markup=back_keyboard())
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        return
+
+    # ── ملف TXT → رفعه على paste.rs وإعطاء رابط مباشر ──
+    if ext == 'txt':
+        msg = await update.message.reply_text(f"📥 جاري تنزيل ورفع `{fname}`...", parse_mode="Markdown")
+        try:
+            file = await doc.get_file()
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tmp:
+                await file.download_to_drive(tmp.name)
+                with open(tmp.name, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                os.unlink(tmp.name)
+            url = share_code(content)
+            if url:
+                save_deployment(user.id, url, fname)
+                await msg.edit_text(
+                    f"✅ *تم رفع الملف!*\n\n"
+                    f"📄 اسم الملف: `{fname}`\n"
+                    f"🔗 الرابط المباشر:\n`{url}`",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📄 افتح الملف", url=url)],
+                        [InlineKeyboardButton("🔙 رجوع",       callback_data="back")]
+                    ]))
+            else:
+                await msg.edit_text("❌ فشل الرفع. حاول مرة أخرى.", reply_markup=back_keyboard())
+        except Exception as e:
+            await msg.edit_text(f"❌ خطأ: {e}")
+        return
+
+    if not lang:
+        await update.message.reply_text(
+            "📎 أنواع الملفات المدعومة:\n"
+            "🌐 `.html` — نشر على GitHub Pages\n"
+            "📄 `.txt` — رابط مباشر\n"
+            "💻 `.py` `.js` `.cpp` `.sh` — تنفيذ كود",
+            parse_mode="Markdown"); return
+
+    msg = await update.message.reply_text(f"📥 جاري تنزيل وتنفيذ `{fname}`...", parse_mode="Markdown")
+    try:
+        file = await doc.get_file()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}') as tmp:
+            await file.download_to_drive(tmp.name)
+            with open(tmp.name, 'r', encoding='utf-8', errors='replace') as f:
+                code = f.read()
+            os.unlink(tmp.name)
+        inc_exec(user.id)
+        save_project(user.id, code[:3000], lang)
+        output = await run_code(lang, code)
+        try:
+            await msg.edit_text(
+                f"📤 *نتيجة تنفيذ `{fname}`:*\n```\n{output}\n```", parse_mode="Markdown")
+        except:
+            await msg.edit_text(f"📤 نتيجة:\n{output}")
+        if user.id != OWNER_ID:
+            await forward_to_owner(ctx.bot, user, f"[أرسل ملف: {fname}]\n{code[:200]}")
+    except Exception as e:
+        await msg.edit_text(f"❌ خطأ في معالجة الملف: {e}")
+
+# ══════════════════════════════════════════════
+#  مشاريع محفوظة
+# ══════════════════════════════════════════════
+async def saved_projects_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear()
+    buttons = []
+    for i, p in enumerate(SAVED_PROJECTS):
+        buttons.append([InlineKeyboardButton(p["title"], callback_data=f"proj_{i}")])
+    buttons.append([InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back")])
+    await q.edit_message_text(
+        "📁 *مشاريع محفوظة*\n\nاختر مشروعاً جاهزاً:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons))
+
+async def saved_project_view_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    idx = int(q.data.split("_")[1])
+    if idx >= len(SAVED_PROJECTS):
+        await q.answer("مشروع غير موجود!"); return
+    p = SAVED_PROJECTS[idx]
+    code_preview = p["code"][:2000]
+    try:
+        await q.edit_message_text(
+            f"📁 *{p['title']}*\n\n```{p['lang']}\n{code_preview}\n```\n\n"
+            f"📋 انسخ الكود واضغط تنفيذ كود لتشغيله!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 رجوع للمشاريع", callback_data="saved_projects")]
+            ]))
+    except:
+        await q.edit_message_text(
+            f"📁 {p['title']}\n\n{code_preview}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 رجوع للمشاريع", callback_data="saved_projects")]
+            ]))
+
+# ══════════════════════════════════════════════
+#  مصحّح أخطاء ذكي
+# ══════════════════════════════════════════════
+async def ai_debug_btn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    ctx.user_data.clear(); ctx.user_data['mode'] = 'ai_debug'
+    await q.edit_message_text(
+        "🐛 *مصحّح أخطاء ذكي*\n\n"
+        "أرسل:\n"
+        "• رسالة الخطأ (Error message)\n"
+        "• أو الكود المعطوب مع الخطأ\n\n"
+        "📌 *مثال:*\n"
+        "`NameError: name 'x' is not defined`\n"
+        "أو الكود كاملاً مع رسالة الخطأ",
+        parse_mode="Markdown")
+
+# ══════════════════════════════════════════════
+#  التحدي اليومي التلقائي
+# ══════════════════════════════════════════════
+async def send_daily_stats(bot):
+    """يبعت إحصائيات يومية للمالك كل صباح"""
+    try:
+        c.execute("SELECT COUNT(*) FROM users")
+        total_users = c.fetchone()[0]
+        c.execute("SELECT COALESCE(SUM(exec_count),0), COALESCE(SUM(ai_count),0) FROM stats")
+        row = c.fetchone()
+        total_exec, total_ai = row[0], row[1]
+        c.execute("SELECT COUNT(*) FROM deployments")
+        total_deploys = c.fetchone()[0]
+        today = date.today().isoformat()
+        text = (
+            f"📊 *إحصائيات karasven AI — {today}*\n\n"
+            f"👥 إجمالي المستخدمين: `{total_users}`\n"
+            f"⚡ إجمالي التنفيذات: `{total_exec}`\n"
+            f"🤖 إجمالي طلبات AI: `{total_ai}`\n"
+            f"🌐 إجمالي النشرات: `{total_deploys}`\n"
+        )
+        await bot.send_message(chat_id=OWNER_ID, text=text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"[send_daily_stats] {e}")
+
+async def send_daily_challenge(bot):
+    today = date.today().isoformat()
+    c.execute("SELECT challenge FROM daily_challenges WHERE date=?", (today,))
+    row = c.fetchone()
+    if not row:
+        challenge = ai_generate(
+            "أنشئ تحدي برمجي يومي متوسط الصعوبة بالعربية. "
+            "اكتب: العنوان، المشكلة، مثال دخل/خرج، وتلميح صغير."
+        )
+        c.execute("INSERT OR IGNORE INTO daily_challenges(date,challenge) VALUES(?,?)", (today, challenge))
+        conn.commit()
+    else:
+        challenge = row[0]
+    users = all_users()
+    for uid in users:
+        try:
+            await bot.send_message(
+                uid,
+                f"🌅 *تحدي اليوم — {today}*\n\n{challenge[:1500]}",
+                parse_mode="Markdown"
+            )
+            await asyncio.sleep(0.05)
+        except:
+            pass
+
+# ══════════════════════════════════════════════
+#  تشغيل البوت
+# ══════════════════════════════════════════════
+def main():
+    app = Application.builder().token(TOKEN).build()
+
+    # أوامر
+    app.add_handler(CommandHandler("start",     start))
+    app.add_handler(CommandHandler("ban",       cmd_ban))
+    app.add_handler(CommandHandler("unban",     cmd_unban))
+    app.add_handler(CommandHandler("users",     cmd_users))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+
+    # أزرار القوائم
+    app.add_handler(CallbackQueryHandler(menu_exec,          pattern=r"^menu_exec$"))
+    app.add_handler(CallbackQueryHandler(menu_ai,            pattern=r"^menu_ai$"))
+    app.add_handler(CallbackQueryHandler(menu_learn,         pattern=r"^menu_learn$"))
+    app.add_handler(CallbackQueryHandler(menu_tools,         pattern=r"^menu_tools$"))
+    app.add_handler(CallbackQueryHandler(back_btn,           pattern=r"^back$"))
+
+    # تنفيذ
+    app.add_handler(CallbackQueryHandler(select_lang,        pattern=r"^lang_"))
+
+    # AI
+    app.add_handler(CallbackQueryHandler(generate_btn,       pattern=r"^generate$"))
+    app.add_handler(CallbackQueryHandler(ai_review_btn,      pattern=r"^ai_review$"))
+    app.add_handler(CallbackQueryHandler(ai_explain_btn,     pattern=r"^ai_explain$"))
+    app.add_handler(CallbackQueryHandler(ai_convert_btn,     pattern=r"^ai_convert$"))
+    app.add_handler(CallbackQueryHandler(ai_docs_btn,        pattern=r"^ai_docs$"))
+
+    # تعلّم
+    app.add_handler(CallbackQueryHandler(challenge_btn,      pattern=r"^challenge$"))
+    app.add_handler(CallbackQueryHandler(challenge_sol_btn,  pattern=r"^challenge_sol$"))
+    app.add_handler(CallbackQueryHandler(learn_concept_btn,  pattern=r"^learn_concept$"))
+    app.add_handler(CallbackQueryHandler(learn_quiz_btn,     pattern=r"^learn_quiz$"))
+    app.add_handler(CallbackQueryHandler(quiz_level,         pattern=r"^quiz_(easy|medium|hard)$"))
+
+    # أدوات
+    app.add_handler(CallbackQueryHandler(tool_api_btn,        pattern=r"^tool_api$"))
+    app.add_handler(CallbackQueryHandler(tool_json_btn,       pattern=r"^tool_json$"))
+    app.add_handler(CallbackQueryHandler(tool_detect_btn,     pattern=r"^tool_detect$"))
+    app.add_handler(CallbackQueryHandler(tool_share_btn,      pattern=r"^tool_share$"))
+    app.add_handler(CallbackQueryHandler(tool_install_btn,    pattern=r"^tool_install$"))
+    app.add_handler(CallbackQueryHandler(tool_git_btn,        pattern=r"^tool_git$"))
+    app.add_handler(CallbackQueryHandler(tool_complexity_btn, pattern=r"^tool_complexity$"))
+    app.add_handler(CallbackQueryHandler(tool_regex_btn,      pattern=r"^tool_regex$"))
+    app.add_handler(CallbackQueryHandler(autofix_btn,         pattern=r"^autofix$"))
+    app.add_handler(CallbackQueryHandler(game_guess_btn,      pattern=r"^game_guess$"))
+
+    # استضافة + باقي
+    app.add_handler(CallbackQueryHandler(host_btn,           pattern=r"^host$"))
+    app.add_handler(CallbackQueryHandler(host_github_btn,    pattern=r"^host_github$"))
+    app.add_handler(CallbackQueryHandler(host_txt_btn,       pattern=r"^host_txt$"))
+    app.add_handler(CallbackQueryHandler(host_deploy_btn,    pattern=r"^host_deploy$"))
+    app.add_handler(CallbackQueryHandler(chat_btn,           pattern=r"^chat$"))
+    app.add_handler(CallbackQueryHandler(leaderboard_btn,    pattern=r"^leaderboard$"))
+    app.add_handler(CallbackQueryHandler(show_btn,           pattern=r"^show$"))
+    app.add_handler(CallbackQueryHandler(stats_btn,          pattern=r"^stats$"))
+    app.add_handler(CallbackQueryHandler(how_btn,               pattern=r"^how$"))
+    app.add_handler(CallbackQueryHandler(clear_btn,             pattern=r"^clear$"))
+    app.add_handler(CallbackQueryHandler(saved_projects_btn,    pattern=r"^saved_projects$"))
+    app.add_handler(CallbackQueryHandler(saved_project_view_btn,pattern=r"^proj_\d+$"))
+    app.add_handler(CallbackQueryHandler(ai_debug_btn,          pattern=r"^ai_debug$"))
+
+    # رسائل + ملفات
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+    # جدولة التحدي اليومي الساعة 9 صباحاً + الإحصائيات الساعة 8 صباحاً
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(send_daily_challenge, 'cron', hour=9, minute=0, args=[app.bot])
+    scheduler.add_job(send_daily_stats,    'cron', hour=8, minute=0, args=[app.bot])
+
+    async def on_startup(application):
+        scheduler.start()
+
+    app.post_init = on_startup
+
+    print("✅ karasven AI — النسخة الكاملة — جاهز 🚀")
+    print("   💻 لغات: Python | Java | JS | C++ | Bash")
+    print("   🤖 AI: توليد | مراجعة | شرح | تحويل | توثيق")
+    print("   🎓 تعلّم: تحدي | اختبار | شرح مفاهيم")
+    print("   🔧 أدوات: API | JSON | كشف لغة | مشاركة")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
